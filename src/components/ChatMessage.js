@@ -13,7 +13,6 @@ class ChatMessage extends Component {
     this.getClassName = this.getClassName.bind(this);
     this.renderMessagePart = this.renderMessagePart.bind(this);
     this.renderOptions = this.renderOptions.bind(this);
-    this.renderRawText = this.renderRawText.bind(this);
     this.optionOnChange = this.optionOnChange.bind(this);
   }
 
@@ -53,12 +52,6 @@ class ChatMessage extends Component {
     )
   }
 
-  renderRawText(rawText, msg) {
-    return rawText && rawText !== msg ? (
-      <span className="rawText">{this.props.message.rawText}</span>
-    ) : null;
-  }
-
   renderMessagePart(msg) {
     switch (msg.type) {
       case 'chat.file':
@@ -66,9 +59,8 @@ class ChatMessage extends Component {
       default:
         return (
           <div className="chat-msg">
-            <span>{msg.msg}</span>
-            {this.renderRawText(msg.rawText, msg.msg)}
-            {this.renderOptions(msg.options)}
+            <span>{this.props.message.msg}</span>
+            {this.renderOptions(this.props.message.options)}
           </div>
         );
     }

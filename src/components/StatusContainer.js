@@ -9,7 +9,7 @@ class StatusContainer extends Component {
   }
 
   renderIcon() {
-    const isString = typeof (this.props.icon) === 'string';
+    const isString = typeof(this.props.icon) === 'string';
     return (
       <div className="card-icon">
         {!isString && this.props.icon}
@@ -20,7 +20,7 @@ class StatusContainer extends Component {
   getStatusText(status) {
     switch (status) {
       case 'online': return 'We\'re online!';
-      case 'offline': return 'We\'re offline';
+      case 'offline': return 'Leave us a message';
       case 'away': return 'We\'re away!';
       default: return 'Connecting...';
     }
@@ -30,17 +30,9 @@ class StatusContainer extends Component {
     return (
       <div className="status-container">
         {this.getStatusText(this.props.accountStatus)}
-        {!this.props.hideMinimizeButton && (
-          <div>
-            <div className="status-button" >
-              <div className="status-button-icon minimize" onClick={this.props.minimizeOnClick}>&minus;</div>
-              <div className="status-button-icon close" onClick={this.props.closeOnClick}>&times;</div>
-            </div>
-            <div className="close-button" >
-              <div className="close-button-bar" />
-            </div>
-          </div>)
-        }
+        <div className="minimize-button" onClick={this.props.minimizeOnClick}>
+          <div className="minimize-button-bar" />
+        </div>
       </div>
     );
   }

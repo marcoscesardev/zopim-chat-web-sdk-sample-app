@@ -15,11 +15,4 @@ export function isTrigger(nick) {
 	return nick.startsWith('agent:trigger');
 }
 
-export function urlParam(key) {
-  var url = new URL(window.location.href);
-
-  return url.searchParams.get(key);
-}
-
 export * from'./PersistentStorage';
-export * from'./redactor';

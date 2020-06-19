@@ -62,11 +62,7 @@ function update(state = DEFAULT_STATE, action) {
 				}
 			};
 		case 'chat':
-      if(!window.chats) {
-        window.chats = [];
-      }
-      let new_state = { ...state };
-      let chatEntry = { ...action.detail };
+			let new_state = { ...state };
 			switch (action.detail.type) {
 				/* Web SDK events */
 				case 'chat.memberjoin':
@@ -81,11 +77,11 @@ function update(state = DEFAULT_STATE, action) {
 						new_state.is_chatting = true;
 					}
 
-          // Concat this event to chats to be displayed
-          console.log('New Chat Entry', chatEntry);
-          window.chats.push(chatEntry);
+					// Concat this event to chats to be displayed
 					new_state.chats = state.chats.concat({
-						[action.detail.timestamp]: chatEntry
+						[action.detail.timestamp]: {
+							...action.detail
+						}
 					});
 
 					return new_state;
@@ -94,11 +90,11 @@ function update(state = DEFAULT_STATE, action) {
 						new_state.is_chatting = false;
 					}
 
-          // Concat this event to chats to be displayed
-          console.log('New Chat Entry', chatEntry);
-          window.chats.push(chatEntry);
+					// Concat this event to chats to be displayed
 					new_state.chats = state.chats.concat({
-						[action.detail.timestamp]: chatEntry
+						[action.detail.timestamp]: {
+							...action.detail
+						}
 					});
 
 					return new_state;
@@ -106,10 +102,10 @@ function update(state = DEFAULT_STATE, action) {
 					new_state.queue_position = action.detail.queue_position;
 					return new_state;
 				case 'chat.request.rating':
-          console.log('New Chat Entry', chatEntry);
-          window.chats.push(chatEntry);
 					new_state.chats = state.chats.concat({
-						[action.detail.timestamp]: chatEntry
+						[action.detail.timestamp]: {
+							...action.detail
+						}
 					});
 
 					return {
@@ -117,10 +113,10 @@ function update(state = DEFAULT_STATE, action) {
 						last_rating_request_timestamp: action.detail.timestamp
 					};
 				case 'chat.rating':
-          console.log('New Chat Entry', chatEntry);
-          window.chats.push(chatEntry);
 					new_state.chats = state.chats.concat({
-						[action.detail.timestamp]: chatEntry
+						[action.detail.timestamp]: {
+							...action.detail
+						}
 					});
 
 					return {
@@ -131,16 +127,12 @@ function update(state = DEFAULT_STATE, action) {
 				case 'chat.msg':
 					// Ensure that triggers are uniquely identified by their display names
 					if (isTrigger(action.detail.nick))
-            action.detail.nick = `agent:trigger:${action.detail.display_name}`;
-
-          chatEntry = {
-            ...action.detail,
-            member_type: isAgent(action.detail.nick) ? 'agent' : 'visitor'
-          };
-          console.log('New Chat Entry', chatEntry);
-          window.chats.push(chatEntry);
+						action.detail.nick = `agent:trigger:${action.detail.display_name}`;
 					new_state.chats = state.chats.concat({
-						[action.detail.timestamp]: chatEntry
+						[action.detail.timestamp]: {
+							...action.detail,
+							member_type: isAgent(action.detail.nick) ? 'agent' : 'visitor'
+						}
 					});
 					return new_state;
 				case 'typing':
@@ -182,8 +174,7 @@ function storeHandler(state = DEFAULT_STATE, action) {
 		 * between user's local computer and the server, which can
 		 * cause messages to appear in the wrong order.
 		 */
-    const now_timestamp = Date.now();
-		const new_timestamp = now_timestamp > state.last_timestamp ? now_timestamp : state.last_timestamp + 1;
+		const new_timestamp = state.last_timestamp + 1;
 
 		switch (action.detail.type) {
 			case 'visitor_send_msg':
@@ -194,11 +185,24 @@ function storeHandler(state = DEFAULT_STATE, action) {
 						display_name: state.visitor.display_name,
 						nick: state.visitor.nick || 'visitor:',
 						timestamp: new_timestamp,
-            msg: action.detail.msg,
-            rawText: action.detail.rawText,
+						msg: action.detail.msg,
 						source: 'local'
 					}
 				};
+				break;
+      case 'agent_sended_msg':
+				new_action = {
+					type: 'chat',
+					detail: {
+						type: 'chat.msg',
+						display_name: action.detail.display_name,
+						nick: action.detail.nick,
+						timestamp: new_timestamp,
+						msg: action.detail.msg,
+            source: 'local'
+					}
+				};
+
 				break;
 			case 'visitor_send_file':
 				new_action = {

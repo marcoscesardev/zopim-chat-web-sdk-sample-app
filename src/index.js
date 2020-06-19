@@ -22,10 +22,4 @@ function initialize(options = {}) {
 	);
 }
 
-window.activateZendesk = function(options) {
-  if(!window.zendeskWidget) {
-    initialize(options);
-  } else {
-    window.zendeskWidget.toggle();
-  }
-}
+window.onload = initialize;

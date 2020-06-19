@@ -7,30 +7,41 @@ import StatusContainer from 'components/StatusContainer';
 import MessageList from 'components/MessageList';
 import ChatButton from 'components/ChatButton';
 import Input from 'components/Input';
-import { log, get, set, redactCustom, urlParam } from 'utils';
-import _, { debounce, isFunction } from 'lodash';
-import zChat from 'vendor/web-sdk';
 
-const { ENV, ACCOUNT_KEY, THEME } = config;
+import { log, get, set, isAgent } from 'utils';
+import moment from 'moment'
+
+import { debounce } from 'lodash';
+import zChat from 'vendor/web-sdk';
+import * as FlexWebChat from "@twilio/flex-webchat-ui";
+
+const { ENV, ACCOUNT_KEY, THEME, TWILIO_CONFIG } = config;
 
 if (ENV === 'dev') {
   window.zChat = zChat;
 }
 
 class App extends Component {
-  constructor(props) {
-    super(props);
+  constructor() {
+    super();
+
+    const channelSid = localStorage.getItem("twilio-flex-cf") &&
+      JSON.parse(localStorage.getItem("twilio-flex-cf")).flex.session.channelSid || null;
     this.state = {
-      theme: _.get(props, 'options.theme') || THEME,
+      theme: THEME,
       typing: false,
-      visible: !_.get(props, 'options.hideOnInit')
+      visible: false,
+      channelSid,
+      toZendesk: true
     };
+
     this.timer = null;
+    this.listenTwilioEvents = this.listenTwilioEvents.bind(this);
+    this.webChatInitListener = this.webChatInitListener.bind(this);
     this.handleOnSubmit = this.handleOnSubmit.bind(this);
     this.handleOnChange = this.handleOnChange.bind(this);
     this.getVisibilityClass = this.getVisibilityClass.bind(this);
     this.minimizeOnClick = this.minimizeOnClick.bind(this);
-    this.closeOnClick = this.closeOnClick.bind(this);
     this.chatButtonOnClick = this.chatButtonOnClick.bind(this);
     this.mapToEntities = this.mapToEntities.bind(this);
     this.isOffline = this.isOffline.bind(this);
@@ -38,27 +49,16 @@ class App extends Component {
     this.setVisible = this.setVisible.bind(this);
     this.setTheme = this.setTheme.bind(this);
     this.handleFileUpload = this.handleFileUpload.bind(this);
-    this.toggle = this.toggle.bind(this);
-    window.zendeskWidget = this;
   }
 
   componentDidMount() {
     zChat.init({
-      account_key: _.get(this.props, 'options.accountKey') || ACCOUNT_KEY
+      account_key: ACCOUNT_KEY
     });
 
-    const userId = this.props.options.userId || urlParam('userid');
-    const orderId = localStorage.getItem('orderId');
-    const deviceId = localStorage.getItem('deviceId');
-
-    const display_name =  this.props.options.anonymous ? userId || orderId || deviceId || '' : '';
-
-    zChat.setVisitorInfo({
-      display_name: display_name,
-      email: ''
-    }, (err) => {
-      if (err) return;
-    });
+    FlexWebChat.createWebChat(TWILIO_CONFIG)
+      .then(this.webChatInitListener)
+      .catch(error => console.error(error));
 
     const events = [
       'account_status',
@@ -72,10 +72,18 @@ class App extends Component {
 
     events.forEach((evt) => {
       zChat.on(evt, (data) => {
-        this.props.dispatch({
-          type: evt,
-          detail: data
-        });
+        if (this.state.toZendesk) {
+          if (data.type == 'chat.msg' && isAgent(data.nick) && data.msg.startsWith('#TransferToTwilio')){
+            var messagesHistoric = this.parseMessagesHistoric(this.props.data && this.props.data.chats.toArray());
+            this.setState({toZendesk: false})
+            this.genericSendMessage(messagesHistoric, false);
+          } else {
+            this.props.dispatch({
+              type: evt,
+              detail: data
+            });
+          }
+        }
       });
     });
 
@@ -90,10 +98,64 @@ class App extends Component {
     });
   }
 
-  componentWillUnmount() {
-    zChat.endChat();
-    window.zendeskWidget = undefined;
-    window.zChat = undefined;
+  webChatInitListener(webChat) {
+    const {manager} = webChat;
+    let channelSid = this.state.channelSid;
+
+    if (!channelSid) {
+      FlexWebChat.Actions.invokeAction(
+        "StartEngagement", { formData: { "friendlyName":"Customer" } }
+      ).then((channelSid) => {
+        this.setState({ channelSid })
+        this.listenTwilioEvents(manager, channelSid)
+      });
+    } else {
+      this.listenTwilioEvents(manager, channelSid)
+    }
+  }
+
+  async listenTwilioEvents(manager, channelSid) {
+    const channel = await manager.chatClient.getChannelBySid(channelSid)
+
+    channel.on('messageAdded', resp => {
+      if (!this.state.toZendesk && resp.state.author == resp.services.users.fifoStack[0]) {
+        // Verifica se da Twilio veio o Código de transferência para o ZD
+        if (resp.body.startsWith("#zd")) {
+          // Se veio com esse código não é feito o dispatch para salvar a mensagem
+          var messagesHistoric = this.parseMessagesHistoric(this.props.data && this.props.data.chats.toArray());
+            this.setState({toZendesk: true})
+            this.genericSendMessage(messagesHistoric, false);
+        } else {
+          // Salva as mensagens usando esse dispatch personalizado fazendo um "parse" de dados vindo da Twilio
+          this.props.dispatch({
+            type: 'synthetic',
+            detail: {
+              type: 'agent_sended_msg',
+              nick: `agent:${resp.author}`,
+              display_name: resp.author,
+              msg: resp.body
+            }
+          });
+        }
+      }
+    })
+  }
+
+  parseMessagesHistoric(objectMessages) {
+    // Código para pular o fluxo do studio e ir direto para atendimento do agente
+    let messages = '#FromTransfer ------------------\n \n';
+
+    objectMessages.forEach(function (item) {
+      if (item.type == "chat.msg") {
+          messages += `[${item.member_type}] ${item.display_name} (${moment(item.timestamp).format('DD/MM/YYYY - hh:mm:ss')}):\n${item.msg} \n \n`;
+      }
+    })
+
+    return messages;
+  }
+
+  routeTwilioMsg() {
+    this.setState({toZendesk: true})
   }
 
   handleOnChange() {
@@ -122,29 +184,37 @@ class App extends Component {
     // Don't send empty messages
     if (!msg) return;
 
-    // Immediately stop typing
-    this.stopTyping.flush();
-    const { transformMessage, redact } = this.props.options || {};
-    let transformedMessage = transformMessage && isFunction(transformMessage) ? transformMessage(msg) : msg;
-    if(redact) {
-      transformedMessage = redactCustom(transformedMessage);
+    this.genericSendMessage(msg);
+  }
+
+  genericSendMessage(msg, store = true) {
+    if (this.state.toZendesk) {
+      // Immediately stop typing
+      this.stopTyping.flush();
+      zChat.sendChatMsg(msg, (err) => {
+        if (err) {
+          log('Error occured >>>', err);
+          return;
+        }
+      });
+
+    } else {
+      FlexWebChat.Actions.invokeAction(
+        "SendMessage",
+        { body: msg, channelSid: this.state.channelSid }
+      );
     }
 
-    zChat.sendChatMsg(transformedMessage, (err) => {
-      if (err) {
-        log('Error occured >>>', err);
-        return;
-      }
-    });
+    if (store) {
+      this.props.dispatch({
+        type: 'synthetic',
+        detail: {
+          type: 'visitor_send_msg',
+          msg
+        }
+      });
+    }
 
-    this.props.dispatch({
-      type: 'synthetic',
-      detail: {
-        type: 'visitor_send_msg',
-        msg: transformedMessage,
-        rawText: msg
-      }
-    });
     this.refs.input.getRawInput().value = '';
   }
 
@@ -189,24 +259,11 @@ class App extends Component {
     this.setVisible(false);
   }
 
-  closeOnClick() {
-    zChat.endChat();
-    this.minimizeOnClick();
-  }
-
   chatButtonOnClick() {
     this.setVisible(true);
   }
 
   setVisible(visible) {
-    this.setState({
-      visible
-    });
-    set('visible', visible);
-  }
-
-  toggle = function () {
-    const visible = !this.state.visible;
     this.setState({
       visible
     });
@@ -251,7 +308,7 @@ class App extends Component {
   }
 
   onThemeChange(theme) {
-    if (theme !== 'docked' && theme !== 'normal' && theme !== 'standalone') {
+    if (theme !== 'docked' && theme !== 'normal') {
       theme = 'docked';
     }
 
@@ -273,14 +330,14 @@ class App extends Component {
           <div className="warning-container">
             <div className="warning">
               🚨🚨🚨&nbsp;&nbsp;&nbsp;You might have forgotten to configure the widget with your own account key.&nbsp;&nbsp;&nbsp;🚨🚨🚨
-              <br /><br />
+              <br/><br/>
               Check the README for more details.
             </div>
           </div>
         );
       }
       else {
-        return <div />;
+        return <div/>;
       }
     }
 
@@ -292,9 +349,7 @@ class App extends Component {
         <div className={`widget-container ${this.getTheme()} ${this.getVisibilityClass()}`}>
           <StatusContainer
             accountStatus={this.props.data.account_status}
-            hideMinimizeButton={_.get(this.props, 'options.hideMinimizeButton')}
             minimizeOnClick={this.minimizeOnClick}
-            closeOnClick={this.closeOnClick}
           />
           <MessageList
             visible={this.state.visible}
@@ -306,13 +361,12 @@ class App extends Component {
             entities={entities}
             lastRatingRequestTimestamp={this.props.data.last_rating_request_timestamp}
             hasRating={this.props.data.has_rating}
-            options={this.props.options}
           />
           <div className={`spinner-container ${this.state.visible && this.props.data.connection !== 'connected' ? 'visible' : ''}`}>
             <div className="spinner"></div>
           </div>
           <Input
-            addClass={this.props.data.is_chatting && this.state.visible ? 'visible' : ''}
+            addClass={this.props.data.is_chatting ? 'visible' : ''}
             ref="input"
             onSubmit={this.handleOnSubmit}
             onChange={this.handleOnChange}
@@ -320,7 +374,7 @@ class App extends Component {
             onFileUpload={this.handleFileUpload}
           />
         </div>
-        {!_.get(this.props, 'options.hideChatButton') && <ChatButton addClass={this.getVisibilityClass()} onClick={this.chatButtonOnClick} />}
+        <ChatButton addClass={this.getVisibilityClass()} onClick={this.chatButtonOnClick} />
       </div>
     );
   }

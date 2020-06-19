@@ -66,9 +66,9 @@ class MessageList extends Component {
           />
         );
       case 'offline':
-        return this.props.options.hideOfflineForm ? null : <OfflineForm key="offline" options={this.props.options} />;
+        return <OfflineForm key="offline" />;
       case 'prechat':
-        return <PrechatForm key="prechat" options={this.props.options} />;
+        return <PrechatForm key="prechat" />;
       default:
         return <div key={+new Date()}>Unhandled message: {JSON.stringify(msg)}</div>
     }
@@ -106,7 +106,7 @@ class MessageList extends Component {
         nick: 'agent:offline',
         timestamp: +new Date(),
         member_type: 'agent',
-        msg: this.props.options.offlineMessage || 'Sorry, we are offline at the moment. Please leave us your contact information and we will get back to you soon!'
+        msg: 'Sorry, we are offline at the moment. Please leave us your contact information and we will get back to you soon!'
       });
       messages.push({
         type: 'offline'
