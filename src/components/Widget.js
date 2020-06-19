@@ -7,8 +7,8 @@ import StatusContainer from 'components/StatusContainer';
 import MessageList from 'components/MessageList';
 import ChatButton from 'components/ChatButton';
 import Input from 'components/Input';
-import { log, get, set } from 'utils';
-import { debounce } from 'lodash';
+import { log, get, set, redactCustom, urlParam } from 'utils';
+import _, { debounce, isFunction } from 'lodash';
 import zChat from 'vendor/web-sdk';
 
 const { ENV, ACCOUNT_KEY, THEME } = config;
@@ -18,18 +18,19 @@ if (ENV === 'dev') {
 }
 
 class App extends Component {
-  constructor() {
-    super();
+  constructor(props) {
+    super(props);
     this.state = {
-      theme: THEME,
+      theme: _.get(props, 'options.theme') || THEME,
       typing: false,
-      visible: false
+      visible: !_.get(props, 'options.hideOnInit')
     };
     this.timer = null;
     this.handleOnSubmit = this.handleOnSubmit.bind(this);
     this.handleOnChange = this.handleOnChange.bind(this);
     this.getVisibilityClass = this.getVisibilityClass.bind(this);
     this.minimizeOnClick = this.minimizeOnClick.bind(this);
+    this.closeOnClick = this.closeOnClick.bind(this);
     this.chatButtonOnClick = this.chatButtonOnClick.bind(this);
     this.mapToEntities = this.mapToEntities.bind(this);
     this.isOffline = this.isOffline.bind(this);
@@ -37,11 +38,26 @@ class App extends Component {
     this.setVisible = this.setVisible.bind(this);
     this.setTheme = this.setTheme.bind(this);
     this.handleFileUpload = this.handleFileUpload.bind(this);
+    this.toggle = this.toggle.bind(this);
+    window.zendeskWidget = this;
   }
 
   componentDidMount() {
     zChat.init({
-      account_key: ACCOUNT_KEY
+      account_key: _.get(this.props, 'options.accountKey') || ACCOUNT_KEY
+    });
+
+    const userId = this.props.options.userId || urlParam('userid');
+    const orderId = localStorage.getItem('orderId');
+    const deviceId = localStorage.getItem('deviceId');
+
+    const display_name =  this.props.options.anonymous ? userId || orderId || deviceId || '' : '';
+
+    zChat.setVisitorInfo({
+      display_name: display_name,
+      email: ''
+    }, (err) => {
+      if (err) return;
     });
 
     const events = [
@@ -74,6 +90,12 @@ class App extends Component {
     });
   }
 
+  componentWillUnmount() {
+    zChat.endChat();
+    window.zendeskWidget = undefined;
+    window.zChat = undefined;
+  }
+
   handleOnChange() {
     if (!this.state.typing) {
       zChat.sendTyping(true);
@@ -102,7 +124,13 @@ class App extends Component {
 
     // Immediately stop typing
     this.stopTyping.flush();
-    zChat.sendChatMsg(msg, (err) => {
+    const { transformMessage, redact } = this.props.options || {};
+    let transformedMessage = transformMessage && isFunction(transformMessage) ? transformMessage(msg) : msg;
+    if(redact) {
+      transformedMessage = redactCustom(transformedMessage);
+    }
+
+    zChat.sendChatMsg(transformedMessage, (err) => {
       if (err) {
         log('Error occured >>>', err);
         return;
@@ -113,7 +141,8 @@ class App extends Component {
       type: 'synthetic',
       detail: {
         type: 'visitor_send_msg',
-        msg
+        msg: transformedMessage,
+        rawText: msg
       }
     });
     this.refs.input.getRawInput().value = '';
@@ -160,11 +189,24 @@ class App extends Component {
     this.setVisible(false);
   }
 
+  closeOnClick() {
+    zChat.endChat();
+    this.minimizeOnClick();
+  }
+
   chatButtonOnClick() {
     this.setVisible(true);
   }
 
   setVisible(visible) {
+    this.setState({
+      visible
+    });
+    set('visible', visible);
+  }
+
+  toggle = function () {
+    const visible = !this.state.visible;
     this.setState({
       visible
     });
@@ -209,7 +251,7 @@ class App extends Component {
   }
 
   onThemeChange(theme) {
-    if (theme !== 'docked' && theme !== 'normal') {
+    if (theme !== 'docked' && theme !== 'normal' && theme !== 'standalone') {
       theme = 'docked';
     }
 
@@ -231,14 +273,14 @@ class App extends Component {
           <div className="warning-container">
             <div className="warning">
               🚨🚨🚨&nbsp;&nbsp;&nbsp;You might have forgotten to configure the widget with your own account key.&nbsp;&nbsp;&nbsp;🚨🚨🚨
-              <br/><br/>
+              <br /><br />
               Check the README for more details.
             </div>
           </div>
         );
       }
       else {
-        return <div/>;
+        return <div />;
       }
     }
 
@@ -250,7 +292,9 @@ class App extends Component {
         <div className={`widget-container ${this.getTheme()} ${this.getVisibilityClass()}`}>
           <StatusContainer
             accountStatus={this.props.data.account_status}
+            hideMinimizeButton={_.get(this.props, 'options.hideMinimizeButton')}
             minimizeOnClick={this.minimizeOnClick}
+            closeOnClick={this.closeOnClick}
           />
           <MessageList
             visible={this.state.visible}
@@ -262,12 +306,13 @@ class App extends Component {
             entities={entities}
             lastRatingRequestTimestamp={this.props.data.last_rating_request_timestamp}
             hasRating={this.props.data.has_rating}
+            options={this.props.options}
           />
           <div className={`spinner-container ${this.state.visible && this.props.data.connection !== 'connected' ? 'visible' : ''}`}>
             <div className="spinner"></div>
           </div>
           <Input
-            addClass={this.props.data.is_chatting ? 'visible' : ''}
+            addClass={this.props.data.is_chatting && this.state.visible ? 'visible' : ''}
             ref="input"
             onSubmit={this.handleOnSubmit}
             onChange={this.handleOnChange}
@@ -275,7 +320,7 @@ class App extends Component {
             onFileUpload={this.handleFileUpload}
           />
         </div>
-        <ChatButton addClass={this.getVisibilityClass()} onClick={this.chatButtonOnClick} />
+        {!_.get(this.props, 'options.hideChatButton') && <ChatButton addClass={this.getVisibilityClass()} onClick={this.chatButtonOnClick} />}
       </div>
     );
   }

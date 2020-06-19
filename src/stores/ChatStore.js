@@ -9,8 +9,8 @@ const DEFAULT_STATE = {
 	visitor: {},
 	agents: {},
 	chats: SortedMap(),
-	last_timestamp: 0,
-	last_rating_request_timestamp: 0,
+	last_timestamp: Date.now(),
+	last_rating_request_timestamp: Date.now(),
 	has_rating: false,
 	is_chatting: false
 };
@@ -62,7 +62,11 @@ function update(state = DEFAULT_STATE, action) {
 				}
 			};
 		case 'chat':
-			let new_state = { ...state };
+      if(!window.chats) {
+        window.chats = [];
+      }
+      let new_state = { ...state };
+      let chatEntry = { ...action.detail };
 			switch (action.detail.type) {
 				/* Web SDK events */
 				case 'chat.memberjoin':
@@ -77,11 +81,11 @@ function update(state = DEFAULT_STATE, action) {
 						new_state.is_chatting = true;
 					}
 
-					// Concat this event to chats to be displayed
+          // Concat this event to chats to be displayed
+          console.log('New Chat Entry', chatEntry);
+          window.chats.push(chatEntry);
 					new_state.chats = state.chats.concat({
-						[action.detail.timestamp]: {
-							...action.detail
-						}
+						[action.detail.timestamp]: chatEntry
 					});
 
 					return new_state;
@@ -90,11 +94,11 @@ function update(state = DEFAULT_STATE, action) {
 						new_state.is_chatting = false;
 					}
 
-					// Concat this event to chats to be displayed
+          // Concat this event to chats to be displayed
+          console.log('New Chat Entry', chatEntry);
+          window.chats.push(chatEntry);
 					new_state.chats = state.chats.concat({
-						[action.detail.timestamp]: {
-							...action.detail
-						}
+						[action.detail.timestamp]: chatEntry
 					});
 
 					return new_state;
@@ -102,10 +106,10 @@ function update(state = DEFAULT_STATE, action) {
 					new_state.queue_position = action.detail.queue_position;
 					return new_state;
 				case 'chat.request.rating':
+          console.log('New Chat Entry', chatEntry);
+          window.chats.push(chatEntry);
 					new_state.chats = state.chats.concat({
-						[action.detail.timestamp]: {
-							...action.detail
-						}
+						[action.detail.timestamp]: chatEntry
 					});
 
 					return {
@@ -113,10 +117,10 @@ function update(state = DEFAULT_STATE, action) {
 						last_rating_request_timestamp: action.detail.timestamp
 					};
 				case 'chat.rating':
+          console.log('New Chat Entry', chatEntry);
+          window.chats.push(chatEntry);
 					new_state.chats = state.chats.concat({
-						[action.detail.timestamp]: {
-							...action.detail
-						}
+						[action.detail.timestamp]: chatEntry
 					});
 
 					return {
@@ -127,12 +131,16 @@ function update(state = DEFAULT_STATE, action) {
 				case 'chat.msg':
 					// Ensure that triggers are uniquely identified by their display names
 					if (isTrigger(action.detail.nick))
-						action.detail.nick = `agent:trigger:${action.detail.display_name}`;
+            action.detail.nick = `agent:trigger:${action.detail.display_name}`;
+
+          chatEntry = {
+            ...action.detail,
+            member_type: isAgent(action.detail.nick) ? 'agent' : 'visitor'
+          };
+          console.log('New Chat Entry', chatEntry);
+          window.chats.push(chatEntry);
 					new_state.chats = state.chats.concat({
-						[action.detail.timestamp]: {
-							...action.detail,
-							member_type: isAgent(action.detail.nick) ? 'agent' : 'visitor'
-						}
+						[action.detail.timestamp]: chatEntry
 					});
 					return new_state;
 				case 'typing':
@@ -174,7 +182,8 @@ function storeHandler(state = DEFAULT_STATE, action) {
 		 * between user's local computer and the server, which can
 		 * cause messages to appear in the wrong order.
 		 */
-		const new_timestamp = state.last_timestamp + 1;
+    const now_timestamp = Date.now();
+		const new_timestamp = now_timestamp > state.last_timestamp ? now_timestamp : state.last_timestamp + 1;
 
 		switch (action.detail.type) {
 			case 'visitor_send_msg':
@@ -185,7 +194,8 @@ function storeHandler(state = DEFAULT_STATE, action) {
 						display_name: state.visitor.display_name,
 						nick: state.visitor.nick || 'visitor:',
 						timestamp: new_timestamp,
-						msg: action.detail.msg,
+            msg: action.detail.msg,
+            rawText: action.detail.rawText,
 						source: 'local'
 					}
 				};

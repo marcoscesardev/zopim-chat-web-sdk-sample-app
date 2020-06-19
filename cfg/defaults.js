@@ -6,31 +6,40 @@ const vendorPath = path.join(__dirname, '/../vendor');
 const dfltPort = 8000;
 function getDefaultModules() {
   return {
-    preLoaders: [{
+    rules: [
+      {
         test: /\.(js|jsx)$/,
         include: srcPath,
-        loader: 'eslint-loader'
-      }],
-    loaders: [
+        loader: 'eslint-loader!babel-loader'
+      },
+      {
+        test: /\.(js|jsx)$/,
+        include: path.join(__dirname, 'node_modules'),
+        loader: 'babel-loader'
+      },
       {
         test: /\.css$/,
-        loader: 'style-loader!css-loader!postcss-loader'
+        use: [
+          'style-loader',
+          'css-loader',
+          'postcss-loader'
+        ]
       },
       {
-        test: /\.sass/,
-        loader: 'style-loader!css-loader!postcss-loader!sass-loader?outputStyle=expanded&indentedSyntax'
-      },
-      {
-        test: /\.scss/,
-        loader: 'style-loader!css-loader!postcss-loader!sass-loader?outputStyle=expanded'
-      },
-      {
-        test: /\.less/,
-        loader: 'style-loader!css-loader!postcss-loader!less-loader'
-      },
-      {
-        test: /\.styl/,
-        loader: 'style-loader!css-loader!postcss-loader!stylus-loader'
+        test: /\.s(c|a)ss$/,
+        use: [
+          'style-loader',
+          'css-loader',
+          'postcss-loader',
+          {
+            loader: 'sass-loader',
+            options: {
+              sassOptions: {
+                outputStyle: 'expanded'
+              }
+            }
+          }
+        ]
       },
       {
         test: /\.(png|jpg|gif|woff|woff2)$/,
